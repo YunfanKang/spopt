@@ -1,12 +1,11 @@
-"""Max-p regions algorithm.
+"""Iterated Max-p regions algorithm.
 
+The greedy construction phase is modified to adopt the iterated greedy framework.
 
 Source: Wei, Ran, Sergio J. Rey, and Elijah Knaap (2020) "Efficient
 regionalization for spatially explicit neighborhood delineation." International
 Journal of Geographical Information Science. Accepted 2020-04-12.
 
-Updated the movable area selection strategy of the local search phase using tarjan's algorithm to 
-reduce the time complexity from O(n^2) to O(n)
 """
 
 __author__ = ["Ran Wei", "Serge Rey", "Elijah Knaap"]
@@ -27,7 +26,7 @@ ITERCONSTRUCT = 100
 ITERSA = 10
 
 
-def maxp(
+def iterated_maxp(
     gdf,
     w,
     attrs_name,
@@ -38,6 +37,11 @@ def maxp(
     max_iterations_sa=ITERSA,
     verbose=False,
     policy="single",
+    initial_it = 1,
+    deconstruct_it = 1000,
+    reconst_it = 99,
+    disturbance_intensity = 5,
+    max_it=1,
     tarjan_flag = True
 ):
     """The max-p-regions involves the aggregation of n areas into an unknown maximum
@@ -105,7 +109,7 @@ def maxp(
     n, k = attr.shape
     arr = np.arange(n)
     cStartTime = time.time()
-    max_p, rl_list = construction_phase(
+    max_p, rl_list = iterated_greedy_construction(
         arr,
         attr,
         threshold_array,
@@ -1260,3 +1264,127 @@ def checkResult(
                 print("Region (", regionId, ") attribute does not match")
                 status = -2
     print("Checking finished with status: ", status)
+
+def get_one_hop_neighbor_regions(
+    regionIds,
+    labels,
+    weight
+):
+    one_hop_neighbor_set = set()
+
+    for i in range(len(labels)):
+        if labels[i] in regionIds:
+            neighbor_list = [labels[j] for j in weight.neighbors[i]]
+            one_hop_neighbor_set.update(neighbor_list)
+    return one_hop_neighbor_set
+def get_deconstruct_areas(
+    regionIds,
+    labels
+):
+    deconstruct_areas = []
+    for i in range(len(labels)):
+        if labels[i] in regionIds:
+            deconstruct_areas.append(i)
+    return deconstruct_areas
+def iterated_greedy_construction(
+    arr,
+    attr,  # noqa ARG001
+    #deconstruct_areas,
+    threshold_array,
+    distance_matrix,
+    w,
+    sum_low,
+    top_n,
+    initial_it = 1,
+    deconstruct_it = 1000,
+    reconst_it = 99,
+    disturbance_intensity = 5,
+    max_it=1,
+    verbose = False
+):
+    cStartTime = time.time()
+    c_max_p, c_rl_list = construction_phase(
+        arr,
+        attr,  # noqa ARG001
+        #deconstruct_areas,
+        threshold_array,
+        distance_matrix,
+        w,
+        sum_low,
+        top_n,
+        max_it=initial_it,
+    )
+    cEndTime = time.time()
+    if verbose:
+        print("Start with p: ", c_max_p)
+        print("Construction time: ", cEndTime - cStartTime)
+    #print(c_rl_list[0][1])
+    #dec_it = 1000
+    #dec_count = 5
+    for i in range(deconstruct_it):
+        
+        center_region = []
+        for i in range(disturbance_intensity):
+            center_region.append(numpy.random.randint(1, c_max_p))
+        one_hop_regions = get_one_hop_neighbor_regions(center_region, c_rl_list[0][0], w)
+        #print("Original deconstructed p: ", len(one_hop_regions), one_hop_regions)
+        deconstruct_areas = get_deconstruct_areas(one_hop_regions, c_rl_list[0][0])
+
+        deconstruct_threshold_values = [threshold_array[i] for i in deconstruct_areas]
+        #print("Reconstruct ", deconstruct_areas)
+        #print("Threshold attrs ", deconstruct_threshold_values)
+        #print("Threshold ", sum_low)
+        #print("Total attr deconstructed ", sum(deconstruct_threshold_values))
+
+        max_p, rl_list = partial_construction_phase(
+            arr,
+            attr,  # noqa ARG001
+            deconstruct_areas,
+            threshold_array,
+            distance_matrix,
+            w,
+            sum_low,
+            top_n,
+            max_it=9,
+        )
+        #print("Reconstructed p: ", max_p)
+        #print(len(rl_list[0][1]))
+        #print("Better? ", max_p > len(one_hop_regions))
+        dec_region_value = 0
+        dec_area_value = 0
+        #print(c_rl_list[0][2])
+        #checkResult(c_rl_list[0][0], c_rl_list[0][1], c_rl_list[0][2], threshold_array)
+        #print(c_rl_list[0][2])
+        for r in one_hop_regions:
+            dec_region_value += c_rl_list[0][2][r]
+        for a in deconstruct_areas:
+            dec_area_value += threshold_array[a]
+        #print("Valid?", dec_region_value, " ? ", dec_area_value , " ? ",sum(rl_list[0][2].values()))
+        #print(rl_list[0][1])
+        #print(c_max_p)
+        '''print(c_rl_list[0][2])'''
+        if(max_p > len(one_hop_regions)):
+            p_difference = max_p - len(one_hop_regions)
+            
+            for i in range(1, len(one_hop_regions) + 1):
+                #print(i)
+                #print(list(one_hop_regions)[i-1])
+                #print(i)
+                #print(rl_list[0][1][i])
+                for area in rl_list[0][1][i]:
+                    c_rl_list[0][0][area] = list(one_hop_regions)[i-1]
+                c_rl_list[0][1][list(one_hop_regions)[i-1]] = rl_list[0][1][i]
+                c_rl_list[0][2][list(one_hop_regions)[i-1]] = rl_list[0][2][i]
+            for i in range(len(one_hop_regions) + 1, max_p + 1):
+                new_regionId = c_max_p + i - len(one_hop_regions)
+                #print("New region: ", new_regionId)
+                #print(rl_list[0][1][i + len(one_hop_regions)])
+                for area in rl_list[0][1][i]:
+                    c_rl_list[0][0][area] = new_regionId
+                c_rl_list[0][1][new_regionId] = rl_list[0][1][i]
+                c_rl_list[0][2][new_regionId] = rl_list[0][2][i]
+            c_max_p += p_difference
+    rEndTime = time.time()
+    if verbose:
+        print("Ends with: ", c_max_p)
+        print("Reconstruction time: ", rEndTime - cEndTime)
