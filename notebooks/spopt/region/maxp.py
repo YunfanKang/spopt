@@ -9,14 +9,14 @@ __author__ = ["Ran Wei", "Serge Rey", "Elijah Knaap"]
 __email__ = "sjsrey@gmail.com"
 
 from copy import deepcopy
-
+from collections import defaultdict
 import numpy as np
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial.distance import pdist, squareform
 
 from ..BaseClass import BaseSpOptHeuristicSolver
 from .base import modify_components
-import time
+
 ITERCONSTRUCT = 999
 ITERSA = 10
 
@@ -97,7 +97,7 @@ def maxp(
     distance_matrix = squareform(pdist(attr, metric="cityblock"))
     n, k = attr.shape
     arr = np.arange(n)
-    cStartTime = time.time()
+
     max_p, rl_list = construction_phase(
         arr,
         attr,
@@ -108,19 +108,17 @@ def maxp(
         top_n,
         max_iterations_construction,
     )
-    cEndTime = time.time()
-    cDuration  = cEndTime - cStartTime
+
     if verbose:
         print("max_p: ", max_p)
         print("number of good partitions:", len(rl_list))
-        print("Construction time: ", cDuration)
 
     alpha = 0.998
     tabuLength = 10
     max_no_move = n
     best_obj_value = np.inf
     best_label = None
-    
+
     for irl, rl in enumerate(rl_list):
         label, regionList, regionSpatialAttr = rl
         if verbose:
@@ -144,7 +142,6 @@ def maxp(
             if verbose:
                 print("totalWithinRegionDistance after SA: ")
                 print(totalWithinRegionDistance)
-                print("Local search time: ", (time.time() - cEndTime))
             if totalWithinRegionDistance < best_obj_value:
                 best_obj_value = totalWithinRegionDistance
                 best_label = finalLabel
@@ -673,7 +670,7 @@ def perform_sa(
             if (poa, recipientRegion, donorRegion) not in tabuList:
                 if len(tabuList) == tabuLength:
                     tabuList.pop(0)
-                tabuList.append((poa, donorRegion, recipientRegion))
+                tabuList.append((poa, recipientRegion, donorRegion))
 
             ni_move_ct = 0
         else:
@@ -701,6 +698,174 @@ def perform_sa(
 
         t = t * alpha
     return [labels, regionLists, regionSpatialAttrs]
+
+from collections import defaultdict
+def dfs(
+    area_index,
+    region_graph,
+    visited,
+    discovery_time,
+    low,
+    parent,
+    time,
+    articulation_points
+):
+    visited[area_index] = True
+    discovery_time[area_index] = time
+    low[area_index] = time
+    children = 0
+    for neighbor_index in region_graph[area_index]:
+        if not visited[neighbor_index]:
+            parent[neighbor_index] = area_index
+            children += 1
+            dfs(neighbor_index, region_graph, visited, discovery_time, low, parent, time + 1, articulation_points)
+            low[area_index] = min(low[area_index], low[neighbor_index])
+
+            if parent[area_index] == -1 and children > 1:
+                articulation_points.add(area_index)
+                #print("Area" , area_index, " added as root")
+            elif parent[area_index] != -1 and low[neighbor_index] >= discovery_time[area_index]:
+                articulation_points.add(area_index)
+                #print("Area" , area_index, " added as articluation ", parent[area_index])
+        elif neighbor_index != parent[area_index]:
+            low[area_index] = min(low[area_index], discovery_time[neighbor_index])
+
+def get_articulation_points(
+    areas_in_region,
+    weight_sparse
+): 
+    """Get the articulation areas out of a region.
+
+    Parameters
+    ----------
+
+    areas_in_region : array, required
+        All the areas in the regions
+
+    weight_sparse : dict, required
+        A dictionary with key as area ID and value as a list of 
+        neighbor areas.
+
+    visited : array, required
+        An array that indicating whether each area has been visited
+
+    discovery_time : array, required
+        An array of the discovery time of the areas during the BFS traversal.
+
+    low :array, required
+        An array of the topmost reachable ancestor for each area in the DFS
+
+    parent : array, required
+        The array of the parent of each area in the DFS traversal
+    time : int
+        The time stamp of the DFS traversal
+
+    articulation_points : list
+        a list of atriculation area units which will cause the number of connected components to increase once removed.
+
+    """
+    edges_with_index = weight_sparse[areas_in_region, :][:, areas_in_region]
+    region_graph = defaultdict(list)
+    cx = coo_matrix(edges_with_index)  
+    #print(cx)
+    for i,j,v in zip(cx.row, cx.col, cx.data):
+        region_graph[i].append(j)
+    
+    visited = False * areas_in_region
+    discovery_time = [-1] * areas_in_region.size
+    low = [-1] * areas_in_region.size
+    parent = [-1] * areas_in_region.size
+    #print(parent)
+    time = 0
+    articulation_points = set()
+    for area_index in range(areas_in_region.size):
+        if not visited[area_index]:
+            dfs(area_index, region_graph, visited, discovery_time, low, parent, time, articulation_points)
+    return list(articulation_points)
+
+def pick_move_area(
+    labels,  # noqa ARG001
+    regionLists,
+    regionSpatialAttrs,
+    threshold_array,
+    weight,
+    distance_matrix,  # noqa ARG001
+    threshold,
+):
+    """Pick a spatial unit that can move from one region to another.
+
+    Parameters
+    ----------
+
+    labels : list, required
+        A list of current region labels
+
+    regionLists : dict, required
+        A dictionary with key as region ID and value as a list of area
+        units assigned to the region.
+
+    regionSpatialAttrs : dict, required
+        A dictionary with key as region ID and value as the total
+        spatial extensive attribute of the region.
+
+    threshold_array : array, required
+        An array of the values of the spatial extensive attribute.
+
+    weight :libpysal.weights.W, required
+        Weights object created from given data
+
+    threshold : {int, float}, required
+        The threshold value.
+
+    Returns
+    -------
+
+    potentialAreas : list
+        a list of area units that can move without violating
+        contiguity and threshold constraints
+
+    """
+    tarjan = True
+    #startTimer = time.time()
+    potentialAreas = []
+    #potentialAreas2 = []
+    for k, v in regionSpatialAttrs.items():
+        rla = np.array(regionLists[k])
+        rasa = threshold_array[rla]
+        lostSA = v - rasa
+        pas_indices = np.where(lostSA > threshold)[0]
+        if pas_indices.size > 0:
+            if tarjan:
+                
+                ap = get_articulation_points(rla, weight.sparse)
+                #print("Removable ", pas_indices)
+                #print("articulation ", ap)
+                #print("Difference ", np.setdiff1d(pas_indices, ap))
+                #print(ap)
+                tmp_potentialArea2 = list(rla[list(np.setdiff1d(pas_indices, ap))])
+                potentialAreas.extend(tmp_potentialArea2)
+            else:
+                tmp_potentialArea = []
+                for pasi in pas_indices:
+                    leftAreas = np.delete(rla, pasi)
+                    ws = weight.sparse
+                    #print(ws)
+                    
+                    cc = connected_components(ws[leftAreas, :][:, leftAreas])
+                    #print(rla)
+                    if cc[0] == 1:
+                        tmp_potentialArea.append(rla[pasi])
+                potentialAreas.extend(tmp_potentialArea)
+                #print(rla)
+                #print("CC: ", tmp_potentialArea)
+                #print("Tarjan: ",tmp_potentialArea2)
+                #print("Tarjan and CC result are the same: ", tmp_potentialArea == tmp_potentialArea2)
+                
+        else:
+            continue
+    #endTimer = time.time()
+    #print("Time for pick potential areas: ", endTimer - startTimer)
+    return potentialAreas
 
 
 class MaxPHeuristic(BaseSpOptHeuristicSolver):
