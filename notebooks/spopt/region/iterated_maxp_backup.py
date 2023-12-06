@@ -1,11 +1,8 @@
-"""Iterated Max-p regions algorithm.
-
-The greedy construction phase is modified to adopt the iterated greedy framework.
+"""Max-p regions algorithm.
 
 Source: Wei, Ran, Sergio J. Rey, and Elijah Knaap (2020) "Efficient
 regionalization for spatially explicit neighborhood delineation." International
 Journal of Geographical Information Science. Accepted 2020-04-12.
-
 """
 
 __author__ = ["Ran Wei", "Serge Rey", "Elijah Knaap"]
@@ -17,7 +14,6 @@ import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial.distance import pdist, squareform
-from collections import defaultdict
 
 from spopt.BaseClass import BaseSpOptHeuristicSolver
 from spopt.region.base import modify_components
@@ -26,7 +22,7 @@ ITERCONSTRUCT = 100
 ITERSA = 10
 
 
-def iterated_maxp(
+def maxp(
     gdf,
     w,
     attrs_name,
@@ -37,11 +33,6 @@ def iterated_maxp(
     max_iterations_sa=ITERSA,
     verbose=False,
     policy="single",
-    initial_it = 1,
-    deconstruct_it = 1000,
-    reconst_it = 99,
-    disturbance_intensity = 0.05,
-    max_it=1,
     tarjan_flag = True
 ):
     """The max-p-regions involves the aggregation of n areas into an unknown maximum
@@ -109,7 +100,7 @@ def iterated_maxp(
     n, k = attr.shape
     arr = np.arange(n)
     cStartTime = time.time()
-    max_p, rl_list = iterated_greedy_construction(
+    max_p, rl_list = construction_phase(
         arr,
         attr,
         threshold_array,
@@ -668,7 +659,7 @@ def perform_sa(
 
 
 
-class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
+class MaxPHeuristic(BaseSpOptHeuristicSolver):
     """The max-p-regions involves the aggregation of n areas into an
     unknown maximum number of homogeneous regions, while ensuring that
     each region is contiguious and satisfies a minimum threshold value
@@ -775,11 +766,6 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
         max_iterations_sa=ITERSA,
         verbose=False,
         policy="single",
-        initial_it = 1,
-        deconstruct_it = 1000,
-        reconst_it = 99,
-        disturbance_intensity = 0.01,
-        max_it=1,
         tarjan_flag = True
     ):
         self.gdf = gdf
@@ -792,16 +778,11 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
         self.max_iterations_sa = max_iterations_sa
         self.verbose = verbose
         self.policy = policy
-        self.initial_it = initial_it
-        self.deconstruct_it = deconstruct_it
-        self.reconst_it = reconst_it
-        self.disturbance_intensity = disturbance_intensity
-        self.max_it = max_it
         self.tarjan_flag = tarjan_flag
 
     def solve(self):
         """Solve a max-p-regions problem and get back the results."""
-        max_p, label = iterated_maxp(
+        max_p, label = maxp(
             self.gdf,
             self.w,
             self.attrs_name,
@@ -812,16 +793,11 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
             self.max_iterations_sa,
             verbose=self.verbose,
             policy=self.policy,
-            initial_it=self.initial_it,
-            deconstruct_it=self.deconstruct_it,
-            reconst_it=self.reconst_it,
-            disturbance_intensity=self.disturbance_intensity,
-            max_it=self.max_it,
             tarjan_flag = self.tarjan_flag
         )
         self.labels_ = label
         self.p = max_p
-
+from collections import defaultdict
 def dfs(
     area_index,
     region_graph,
@@ -1315,7 +1291,6 @@ def iterated_greedy_construction(
     reconst_it = 99,
     disturbance_intensity = 0.05,
     max_it=1,
-    max_no_improvement_count = 50,
     verbose = False
 ):
     cStartTime = time.time()
@@ -1334,33 +1309,17 @@ def iterated_greedy_construction(
     if verbose:
         print("Start with p: ", c_max_p)
         print("Construction time: ", cEndTime - cStartTime)
-    no_improvement_count = 0
+
     for i in range(deconstruct_it):
-        no_improvement_count += 1
-        if(no_improvement_count > max_no_improvement_count):
-            break
-        """center_region = []
-        for i in range(disturbance_intensity):
-            center_region.append(numpy.random.randint(1, c_max_p))
-        one_hop_regions = get_one_hop_neighbor_regions(center_region, c_rl_list[0][0], w)
-        deconstruct_areas = get_deconstruct_areas(one_hop_regions, c_rl_list[0][0])"""
-        #deconstruct_areas = []
-        deconstruct_areas_set = set()
-        deconstructed_region_set = set()
-        while(len(deconstruct_areas_set) < attr.size * disturbance_intensity):
-            #print(i, " ", len(deconstruct_areas_set), " ", attr.size * disturbance_intensity)
+        #center_region = []
+        deconstruct_areas= []
+        while(len(deconstruct_areas) < attr.size * disturbance_intensity):
             center_region = []
             center_region.append(np.random.randint(1, c_max_p))
             one_hop_regions = get_one_hop_neighbor_regions(center_region, c_rl_list[0][0], w)
-            deconstructed_region_set.update(one_hop_regions)
-            deconstruct_areas_set.update(get_deconstruct_areas(one_hop_regions, c_rl_list[0][0]))
-        deconstruct_areas = list(deconstruct_areas_set)
-        
+            deconstruct_areas.extend(get_deconstruct_areas(one_hop_regions, c_rl_list[0][0]))
+
         deconstruct_threshold_values = [threshold_array[i] for i in deconstruct_areas]
-        #print("Reconstruct ", deconstruct_areas)
-        #print("Threshold attrs ", deconstruct_threshold_values)
-        #print("Threshold ", sum_low)
-        #print("Total attr deconstructed ", sum(deconstruct_threshold_values))
 
         max_p, rl_list = partial_construction_phase(
             arr,
@@ -1381,7 +1340,7 @@ def iterated_greedy_construction(
         #print(c_rl_list[0][2])
         #checkResult(c_rl_list[0][0], c_rl_list[0][1], c_rl_list[0][2], threshold_array)
         #print(c_rl_list[0][2])
-        for r in deconstructed_region_set:
+        for r in one_hop_regions:
             dec_region_value += c_rl_list[0][2][r]
         for a in deconstruct_areas:
             dec_area_value += threshold_array[a]
@@ -1389,20 +1348,20 @@ def iterated_greedy_construction(
         #print(rl_list[0][1])
         #print(c_max_p)
         '''print(c_rl_list[0][2])'''
-        if(max_p > len(deconstructed_region_set)):  #There is improvement in termes of number of regions
-            p_difference = max_p - len(deconstructed_region_set)
-            no_improvement_count = 0
-            for i in range(1, len(deconstructed_region_set) + 1):
+        if(max_p > len(one_hop_regions)):
+            p_difference = max_p - len(one_hop_regions)
+            
+            for i in range(1, len(one_hop_regions) + 1):
                 #print(i)
                 #print(list(one_hop_regions)[i-1])
                 #print(i)
                 #print(rl_list[0][1][i])
                 for area in rl_list[0][1][i]:
-                    c_rl_list[0][0][area] = list(deconstructed_region_set)[i-1]
-                c_rl_list[0][1][list(deconstructed_region_set)[i-1]] = rl_list[0][1][i]
-                c_rl_list[0][2][list(deconstructed_region_set)[i-1]] = rl_list[0][2][i]
-            for i in range(len(deconstructed_region_set) + 1, max_p + 1):
-                new_regionId = c_max_p + i - len(deconstructed_region_set)
+                    c_rl_list[0][0][area] = list(one_hop_regions)[i-1]
+                c_rl_list[0][1][list(one_hop_regions)[i-1]] = rl_list[0][1][i]
+                c_rl_list[0][2][list(one_hop_regions)[i-1]] = rl_list[0][2][i]
+            for i in range(len(one_hop_regions) + 1, max_p + 1):
+                new_regionId = c_max_p + i - len(one_hop_regions)
                 #print("New region: ", new_regionId)
                 #print(rl_list[0][1][i + len(one_hop_regions)])
                 for area in rl_list[0][1][i]:
