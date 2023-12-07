@@ -41,7 +41,6 @@ def iterated_maxp(
     deconstruct_it = 1000,
     reconst_it = 99,
     disturbance_intensity = 0.05,
-    max_it=1,
     tarjan_flag = True
 ):
     """The max-p-regions involves the aggregation of n areas into an unknown maximum
@@ -117,7 +116,11 @@ def iterated_maxp(
         w,
         threshold,
         top_n,
-        max_iterations_construction,
+        initial_it=initial_it,
+        deconstruct_it=deconstruct_it,
+        reconst_it=reconst_it,
+        disturbance_intensity=disturbance_intensity,
+        verbose=verbose
     )
     cEndTime = time.time()
     cDuration  = cEndTime - cStartTime
@@ -714,6 +717,24 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
         feasible component. ``'keep'`` attempts to solve without
         modification (useful for debugging). ``'drop'`` removes areas in
         infeasible components before solving.
+    initial_it: int
+        Defaults to 1 to create an initial solution.
+
+    deconstruct_it: int
+        Defaults to 1000. The rounds of deconstruction-reconstruction iterations.
+
+    reconst_it: int
+        Defaults to 99. The number of reconstruction attempts after each deconstruction.
+
+    disturbance_intensity: float
+        Default to 0.01. Should be set to a float number in interval (0,1). The percentage
+        of areas to be deconstructed and reconstructed.
+
+
+    tarjan_flag: boolean
+        Set to ``True`` to use the tarjan artulcation points for determining the movable areas in the
+        local search phase. Set to ``False`` to use the 1cc check.
+        ``True`` by default.
 
     Attributes
     ----------
@@ -723,43 +744,6 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
     labels_ : numpy.array
         Region IDs for observations.
 
-    Examples
-    --------
-
-    >>> import numpy
-    >>> import libpysal
-    >>> import geopandas as gpd
-    >>> from spopt.region.maxp import MaxPHeuristic
-
-    Read the data.
-
-    >>> pth = libpysal.examples.get_path("mexicojoin.shp")
-    >>> mexico = gpd.read_file(pth)
-    >>> mexico["count"] = 1
-
-    Create the weight.
-
-    >>> w = libpysal.weights.Queen.from_dataframe(mexico)
-
-    Define the columns of ``geopandas.GeoDataFrame`` to be spatially
-    extensive attribute.
-
-    >>> attrs_name = [f"PCGDP{year}" for year in range(1950, 2010, 10)]
-
-    Define the spatial extensive attribute variable and the threshold value.
-
-    >>> threshold_name = "count"
-    >>> threshold = 4
-
-    Run the max-p-regions algorithm.
-
-    >>> model = MaxPHeuristic(mexico, w, attrs_name, threshold_name, threshold)
-    >>> model.solve()
-
-    Get the number of regions and region IDs for unit areas.
-
-    >>> model.p
-    >>> model.labels_
 
     """
 
@@ -779,7 +763,6 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
         deconstruct_it = 1000,
         reconst_it = 99,
         disturbance_intensity = 0.01,
-        max_it=1,
         tarjan_flag = True
     ):
         self.gdf = gdf
@@ -796,7 +779,6 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
         self.deconstruct_it = deconstruct_it
         self.reconst_it = reconst_it
         self.disturbance_intensity = disturbance_intensity
-        self.max_it = max_it
         self.tarjan_flag = tarjan_flag
 
     def solve(self):
@@ -816,7 +798,6 @@ class MaxPHeuristic_IG(BaseSpOptHeuristicSolver):
             deconstruct_it=self.deconstruct_it,
             reconst_it=self.reconst_it,
             disturbance_intensity=self.disturbance_intensity,
-            max_it=self.max_it,
             tarjan_flag = self.tarjan_flag
         )
         self.labels_ = label
@@ -1314,10 +1295,10 @@ def iterated_greedy_construction(
     deconstruct_it = 1000,
     reconst_it = 99,
     disturbance_intensity = 0.05,
-    max_it=1,
     max_no_improvement_count = 50,
     verbose = False
 ):
+    #print(initial_it, deconstruct_it, reconst_it, disturbance_intensity)
     cStartTime = time.time()
     c_max_p, c_rl_list = construction_phase(
         arr,
@@ -1371,7 +1352,7 @@ def iterated_greedy_construction(
             w,
             sum_low,
             top_n,
-            max_it=9,
+            max_it=reconst_it,
         )
         #print("Reconstructed p: ", max_p)
         #print(len(rl_list[0][1]))
