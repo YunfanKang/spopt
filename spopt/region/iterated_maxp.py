@@ -43,10 +43,10 @@ def iterated_maxp(
     disturbance_intensity = 0.05,
     tarjan_flag = True
 ):
-    """Same as the max-p-regions, the iterated max-p-regions involves the aggregation of n areas into an unknown maximum
-     number of homogeneous regions, while ensuring that each region is contiguous and
-     satisfies a minimum threshold value imposed on a predefined spatially extensive
-    attribute.
+    """Similar to the max-p-regions, the iterated max-p-regions involves the aggregation of 
+    n areas into an unknown maximum number of homogeneous regions, while ensuring that each 
+    region is contiguous and satisfies a minimum threshold value imposed on a predefined 
+    spatially extensive attribute.
 
     Parameters
     ----------
@@ -103,8 +103,8 @@ def iterated_maxp(
         of areas to be deconstructed and reconstructed.
 
     max_no_improvement_count: int
-        Defaults to 50. The number of iterations of the deconstruction-reconstruction allowed without improving the 
-        result quality.
+        Defaults to 50. The number of iterations of the deconstruction-reconstruction 
+        allowed without improving the result quality.
     
     tarjan_flag: boolean
         Set to ``True`` to use the tarjan artulcation points for determining the movable areas in the
@@ -1008,7 +1008,8 @@ def partial_construction_phase(
     random_assign_choice,
     max_it=99,
 ):
-    """Construct feasible solutions for max-p-regions.
+    """Reconstruct feasible solutions for max-p-regions by only performing a max-p
+        construction on the deconstructed areas.
 
     Parameters
     ----------
@@ -1019,6 +1020,9 @@ def partial_construction_phase(
     attr : array, required
         An array of the values of the attributes.
 
+    deconstruct_areas: list, required
+        The list of areas that are considered in the reconstruction phase
+    
     threshold_array : array, required
         An array of the values of the spatial extensive attribute.
 
